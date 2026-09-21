@@ -1,0 +1,6 @@
+{
+  "name": "HONEY Player",
+  "description": "Fast, modern, privacy-focused offline Android video player with gesture controls, playback memory, and folder browsing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
