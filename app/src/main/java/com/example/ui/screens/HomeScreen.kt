@@ -5,13 +5,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,17 +22,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,14 +54,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import com.example.data.model.VideoItem
+import com.example.data.thumbnail.ThumbnailHelper
 import com.example.ui.components.ContinueWatchingCard
+import com.example.ui.components.ContinueWatchingHeroCard
+import com.example.ui.components.HoneyLogo
 import com.example.ui.components.SortBottomSheet
 import com.example.ui.components.VideoCard
 import com.example.ui.theme.HoneyGold
@@ -72,57 +83,54 @@ import com.example.ui.viewmodel.VideoViewModel
 fun HomeScreen(
     uiState: VideoUiState,
     viewModel: VideoViewModel,
+    onNavigateToVideos: () -> Unit,
     onNavigateToFolders: () -> Unit,
+    onNavigateToPlaylists: () -> Unit,
+    onNavigateToFavorites: () -> Unit,
+    onOpenSettings: () -> Unit,
     onPickVideo: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
+    val recentlyAdded = remember(uiState.allVideos) {
+        uiState.allVideos.sortedByDescending { it.dateAdded }.take(8)
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // App Bar Header
+        // App Bar Header with HONEY Player logo, Search, Settings, Theme toggle
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = CircleShape,
-                    color = HoneyGold,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "H",
-                            color = Color.Black,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(10.dp))
+                HoneyLogo(
+                    size = 38.dp,
+                    showGlow = true
+                )
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = "HONEY",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onBackground,
-                        letterSpacing = 1.sp
+                        letterSpacing = 1.2.sp
                     )
                     Text(
                         text = "VIDEO PLAYER",
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         color = HoneyGold,
-                        letterSpacing = 1.5.sp
+                        letterSpacing = 2.sp
                     )
                 }
             }
@@ -136,18 +144,6 @@ fun HomeScreen(
                     Icon(
                         imageVector = Icons.Default.FileOpen,
                         contentDescription = "Pick Video (File Picker)",
-                        tint = HoneyGold
-                    )
-                }
-
-                // AMOLED / Dark Mode Toggle
-                IconButton(
-                    onClick = { viewModel.toggleThemeMode() },
-                    modifier = Modifier.testTag("theme_toggle_button")
-                ) {
-                    Icon(
-                        imageVector = if (uiState.themeMode == ThemeMode.AMOLED) Icons.Default.LightMode else Icons.Default.DarkMode,
-                        contentDescription = "Toggle AMOLED/Dark Theme",
                         tint = HoneyGold
                     )
                 }
@@ -167,26 +163,26 @@ fun HomeScreen(
                     )
                 }
 
-                // Sort Button
+                // Theme Toggle
                 IconButton(
-                    onClick = { showSortSheet = true },
-                    modifier = Modifier.testTag("sort_button")
+                    onClick = { viewModel.toggleThemeMode() },
+                    modifier = Modifier.testTag("theme_toggle_button")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Sort,
-                        contentDescription = "Sort",
-                        tint = MaterialTheme.colorScheme.onBackground
+                        imageVector = if (uiState.themeMode == ThemeMode.AMOLED) Icons.Default.LightMode else Icons.Default.DarkMode,
+                        contentDescription = "Toggle AMOLED/Dark Theme",
+                        tint = HoneyGold
                     )
                 }
 
-                // Refresh Button
+                // Settings Button
                 IconButton(
-                    onClick = { viewModel.refreshVideos() },
-                    modifier = Modifier.testTag("refresh_button")
+                    onClick = onOpenSettings,
+                    modifier = Modifier.testTag("settings_button")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Scan Videos",
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
                         tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
@@ -294,7 +290,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No local video files were detected in MediaStore. In AI Studio Preview, use \"Pick Video\" to test playback, or install the APK on an Android device to scan your library.",
+                        text = "No local video files were detected in MediaStore. Pick a video manually to test or scan storage.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -332,34 +328,229 @@ fun HomeScreen(
                 }
             }
         } else {
-            // Content List
+            val heroItem = uiState.continueWatching.firstOrNull()
+            val remainingItems = remember(uiState.continueWatching) {
+                if (uiState.continueWatching.size > 1) uiState.continueWatching.drop(1) else emptyList()
+            }
+
+            // Dashboard Content
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 96.dp)
             ) {
-                // Continue Watching Section
-                if (uiState.continueWatching.isNotEmpty() && uiState.searchQuery.isEmpty()) {
+                // Navigation Quick Stats Hub (All Videos, Folders, Playlists, Favorites)
+                if (uiState.searchQuery.isEmpty()) {
                     item {
-                        Column(modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)) {
-                            Text(
-                                text = "Continue Watching",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            DashboardPill(
+                                title = "Videos",
+                                count = "${uiState.allVideos.size}",
+                                icon = Icons.Default.VideoLibrary,
+                                onClick = onNavigateToVideos,
+                                modifier = Modifier.weight(1f)
                             )
+                            DashboardPill(
+                                title = "Folders",
+                                count = "${uiState.folders.size}",
+                                icon = Icons.Default.Folder,
+                                onClick = onNavigateToFolders,
+                                modifier = Modifier.weight(1f)
+                            )
+                            DashboardPill(
+                                title = "Playlists",
+                                count = "${uiState.playlists.size}",
+                                icon = Icons.Default.PlaylistPlay,
+                                onClick = onNavigateToPlaylists,
+                                modifier = Modifier.weight(1f)
+                            )
+                            DashboardPill(
+                                title = "Favorites",
+                                count = "${uiState.favoriteVideos.size}",
+                                icon = Icons.Default.Favorite,
+                                onClick = onNavigateToFavorites,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                // Continue Watching Section (Hero card for most recent, row for others)
+                if (heroItem != null && uiState.searchQuery.isEmpty()) {
+                    item {
+                        Column(modifier = Modifier.padding(top = 10.dp, bottom = 12.dp)) {
+                            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                ContinueWatchingHeroCard(
+                                    video = heroItem.first,
+                                    record = heroItem.second,
+                                    onResumeClick = {
+                                        viewModel.playVideo(heroItem.first, uiState.filteredVideos)
+                                    }
+                                )
+                            }
+
+                            if (remainingItems.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = "More to Resume",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                )
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    items(remainingItems, key = { it.first.contentUri }) { (video, record) ->
+                                        ContinueWatchingCard(
+                                            video = video,
+                                            record = record,
+                                            onClick = {
+                                                viewModel.playVideo(video, uiState.filteredVideos)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Recently Added Section
+                if (uiState.allVideos.isNotEmpty() && uiState.searchQuery.isEmpty()) {
+                    item {
+                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Recently Added",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                TextButton(onClick = onNavigateToVideos) {
+                                    Text("See All", color = HoneyGold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(uiState.continueWatching, key = { it.first.contentUri }) { (video, record) ->
-                                    ContinueWatchingCard(
+                                items(recentlyAdded, key = { it.contentUri }) { video ->
+                                    RecentVideoMiniCard(
                                         video = video,
-                                        record = record,
-                                        onClick = {
-                                            viewModel.playVideo(video, uiState.filteredVideos)
-                                        }
+                                        onClick = { viewModel.playVideo(video, uiState.allVideos) }
                                     )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Favorites Section
+                if (uiState.favoriteVideos.isNotEmpty() && uiState.searchQuery.isEmpty()) {
+                    item {
+                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Favorites",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                TextButton(onClick = onNavigateToFavorites) {
+                                    Text("See All", color = HoneyGold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(uiState.favoriteVideos.take(8), key = { it.contentUri }) { video ->
+                                    RecentVideoMiniCard(
+                                        video = video,
+                                        onClick = { viewModel.playVideo(video, uiState.favoriteVideos) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Playlists Section
+                if (uiState.playlists.isNotEmpty() && uiState.searchQuery.isEmpty()) {
+                    item {
+                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Playlists",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                TextButton(onClick = onNavigateToPlaylists) {
+                                    Text("See All", color = HoneyGold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(uiState.playlists.take(6), key = { it.id }) { playlist ->
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier
+                                            .clickable {
+                                                onNavigateToPlaylists()
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlaylistPlay,
+                                                contentDescription = null,
+                                                tint = HoneyGold,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = playlist.name,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -450,28 +641,29 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
-                        Text(
-                            text = uiState.sortOption.displayName,
-                            fontSize = 12.sp,
-                            color = HoneyGold,
-                            fontWeight = FontWeight.Medium
-                        )
+                        IconButton(onClick = { showSortSheet = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort", tint = HoneyGold, modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
 
                 // Video Cards List
                 items(uiState.filteredVideos, key = { it.contentUri }) { video ->
-                    val isFav = uiState.favoriteVideos.any { it.contentUri == video.contentUri }
+                    val isFav = uiState.favoriteUris.contains(video.contentUri)
+                    val record = uiState.playbackRecordsMap[video.contentUri]
                     VideoCard(
                         video = video,
                         isFavorite = isFav,
+                        playbackRecord = record,
                         onVideoClick = {
                             viewModel.playVideo(video, uiState.filteredVideos)
                         },
                         onFavoriteClick = {
                             viewModel.toggleFavorite(video)
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        onAddToPlaylist = { viewModel.showAddToPlaylistDialog(video) },
+                        onShowInfo = { viewModel.showVideoInfo(video) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
                 }
             }
@@ -483,6 +675,105 @@ fun HomeScreen(
             currentSort = uiState.sortOption,
             onSortSelected = { viewModel.setSortOption(it) },
             onDismiss = { showSortSheet = false }
+        )
+    }
+}
+
+@Composable
+private fun DashboardPill(
+    title: String,
+    count: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = modifier.clickable(onClick = onClick),
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = HoneyGold,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = count,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = title,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentVideoMiniCard(
+    video: VideoItem,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val imageLoader = ThumbnailHelper.getImageLoader(context)
+    val thumbnailRequest = remember(video.contentUri) {
+        ThumbnailHelper.buildThumbnailRequest(context, video.uri, widthPx = 260, heightPx = 160)
+    }
+
+    Column(
+        modifier = Modifier
+            .width(130.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 10f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            AsyncImage(
+                model = thumbnailRequest,
+                imageLoader = imageLoader,
+                contentDescription = video.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .background(Color(0xDD000000), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    text = video.formattedDuration,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = video.title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

@@ -104,16 +104,20 @@ fun FoldersScreen(
                 ) {
                     items(uiState.filteredVideos, key = { it.contentUri }) { video ->
                         val isFav = uiState.favoriteVideos.any { it.contentUri == video.contentUri }
+                        val record = uiState.playbackRecordsMap[video.contentUri]
                         VideoCard(
                             video = video,
                             isFavorite = isFav,
+                            playbackRecord = record,
                             onVideoClick = {
                                 viewModel.playVideo(video, uiState.filteredVideos)
                             },
                             onFavoriteClick = {
                                 viewModel.toggleFavorite(video)
                             },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            onAddToPlaylist = { viewModel.showAddToPlaylistDialog(video) },
+                            onShowInfo = { viewModel.showVideoInfo(video) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                         )
                     }
                 }

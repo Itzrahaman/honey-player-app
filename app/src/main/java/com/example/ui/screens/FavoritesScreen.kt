@@ -103,16 +103,20 @@ fun FavoritesScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
             ) {
                 items(uiState.favoriteVideos, key = { it.contentUri }) { video ->
+                    val record = uiState.playbackRecordsMap[video.contentUri]
                     VideoCard(
                         video = video,
                         isFavorite = true,
+                        playbackRecord = record,
                         onVideoClick = {
                             viewModel.playVideo(video, uiState.favoriteVideos)
                         },
                         onFavoriteClick = {
                             viewModel.toggleFavorite(video)
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        onAddToPlaylist = { viewModel.showAddToPlaylistDialog(video) },
+                        onShowInfo = { viewModel.showVideoInfo(video) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
                 }
             }

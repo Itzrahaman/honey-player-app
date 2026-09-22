@@ -48,8 +48,8 @@ class VideoScanner(private val context: Context) {
         }
 
         val projection = projectionList.toTypedArray()
-        // Filter out zero-byte or corrupt files in SQL query
-        val selection = "${MediaStore.Video.Media.SIZE} > 0"
+        // Filter out zero-byte or corrupt files directly in MediaStore SQL query
+        val selection = "${MediaStore.Video.Media.SIZE} > 0 AND ${MediaStore.Video.Media.DURATION} > 0"
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
 
         try {
@@ -85,6 +85,9 @@ class VideoScanner(private val context: Context) {
 
                 while (c.moveToNext()) {
                     val id = c.getLong(idCol)
+                    val duration = if (durationCol != -1) c.getLong(durationCol) else 0L
+                    if (duration <= 0L) continue
+
                     val contentUri = ContentUris.withAppendedId(
                         MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                         id
@@ -94,13 +97,12 @@ class VideoScanner(private val context: Context) {
                     val displayName = rawDisplayName?.takeIf { it.isNotBlank() } ?: "Video_$id"
                     val title = if (titleCol != -1) c.getString(titleCol)?.takeIf { it.isNotBlank() } ?: displayName else displayName
 
-                    var duration = if (durationCol != -1) c.getLong(durationCol) else 0L
                     val size = if (sizeCol != -1) c.getLong(sizeCol) else 0L
                     val dateAdded = if (dateAddedCol != -1) c.getLong(dateAddedCol) else 0L
                     val dateModified = if (dateModifiedCol != -1) c.getLong(dateModifiedCol) else dateAdded
                     val mime = if (mimeCol != -1) c.getString(mimeCol) ?: "video/*" else "video/*"
-                    var width = if (widthCol != -1) c.getInt(widthCol) else 0
-                    var height = if (heightCol != -1) c.getInt(heightCol) else 0
+                    val width = if (widthCol != -1) c.getInt(widthCol) else 0
+                    val height = if (heightCol != -1) c.getInt(heightCol) else 0
 
                     val filePath = if (dataCol != -1) c.getString(dataCol) ?: "" else ""
 
@@ -120,31 +122,6 @@ class VideoScanner(private val context: Context) {
                             }
                         }
                         else -> "Internal Storage"
-                    }
-
-                    // Requirement 7: Ignore files with invalid or zero duration where appropriate
-                    if (duration <= 0L) {
-                        // MediaStore might not have extracted duration yet; check via MediaMetadataRetriever
-                        try {
-                            val retriever = MediaMetadataRetriever()
-                            retriever.setDataSource(context, Uri.parse(contentUri))
-                            val extractedDuration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                            if (width <= 0) {
-                                width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
-                            }
-                            if (height <= 0) {
-                                height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-                            }
-                            retriever.release()
-                            duration = extractedDuration
-                        } catch (_: Exception) {
-                            // File could not be read or is invalid
-                        }
-                    }
-
-                    // If duration is still <= 0 after retriever, file is unplayable or invalid
-                    if (duration <= 0L) {
-                        continue
                     }
 
                     videoList.add(

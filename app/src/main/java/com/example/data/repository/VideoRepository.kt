@@ -4,7 +4,12 @@ import android.content.Context
 import com.example.data.local.AppDatabase
 import com.example.data.local.PlaybackDao
 import com.example.data.local.PlaybackRecord
+import com.example.data.local.PlaylistDao
+import com.example.data.local.PlaylistEntity
+import com.example.data.local.PlaylistItemEntity
+import com.example.data.local.SettingsManager
 import com.example.data.mediastore.VideoScanner
+import com.example.data.model.PlaylistWithVideos
 import com.example.data.model.SortOption
 import com.example.data.model.VideoFolder
 import com.example.data.model.VideoItem
@@ -14,11 +19,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class VideoRepository(
     private val context: Context,
     private val playbackDao: PlaybackDao = AppDatabase.getDatabase(context).playbackDao(),
+    private val playlistDao: PlaylistDao = AppDatabase.getDatabase(context).playlistDao(),
+    val settingsManager: SettingsManager = SettingsManager(context),
     private val scanner: VideoScanner = VideoScanner(context)
 ) {
     private val _scannedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
@@ -27,6 +35,7 @@ class VideoRepository(
     val continueWatchingRecords: Flow<List<PlaybackRecord>> = playbackDao.getContinueWatchingRecords()
     val allPlaybackRecords: Flow<List<PlaybackRecord>> = playbackDao.getAllRecords()
     val favoriteUris: Flow<List<String>> = playbackDao.getFavoriteUris()
+    val playlists: Flow<List<PlaylistEntity>> = playlistDao.getAllPlaylists()
 
     suspend fun scanLocalVideos(): List<VideoItem> = withContext(Dispatchers.IO) {
         val list = scanner.scanVideos()
@@ -111,5 +120,48 @@ class VideoRepository(
 
     suspend fun clearHistory() = withContext(Dispatchers.IO) {
         playbackDao.clearAll()
+    }
+
+    suspend fun createPlaylist(name: String): Long = withContext(Dispatchers.IO) {
+        playlistDao.insertPlaylist(PlaylistEntity(name = name))
+    }
+
+    suspend fun renamePlaylist(id: Long, newName: String) = withContext(Dispatchers.IO) {
+        playlistDao.renamePlaylist(id, newName)
+    }
+
+    suspend fun deletePlaylist(id: Long) = withContext(Dispatchers.IO) {
+        playlistDao.clearPlaylistItems(id)
+        playlistDao.deletePlaylist(id)
+    }
+
+    suspend fun addVideoToPlaylist(playlistId: Long, videoUri: String) = withContext(Dispatchers.IO) {
+        val existingItems = playlistDao.getItemsForPlaylistSync(playlistId)
+        val order = existingItems.size
+        playlistDao.insertPlaylistItem(
+            PlaylistItemEntity(
+                playlistId = playlistId,
+                videoUri = videoUri,
+                orderIndex = order
+            )
+        )
+    }
+
+    suspend fun removeVideoFromPlaylist(playlistId: Long, videoUri: String) = withContext(Dispatchers.IO) {
+        playlistDao.removePlaylistItem(playlistId, videoUri)
+    }
+
+    fun getPlaylistVideos(playlistId: Long, allVideos: List<VideoItem>): Flow<List<VideoItem>> {
+        return playlistDao.getItemsForPlaylist(playlistId).map { items ->
+            items.mapNotNull { item ->
+                allVideos.find { it.contentUri == item.videoUri }
+            }
+        }
+    }
+
+    suspend fun clearCache() = withContext(Dispatchers.IO) {
+        try {
+            context.cacheDir.deleteRecursively()
+        } catch (_: Exception) {}
     }
 }

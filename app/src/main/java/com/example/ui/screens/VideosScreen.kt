@@ -15,17 +15,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -52,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.SortBottomSheet
 import com.example.ui.components.VideoCard
+import com.example.ui.components.VideoGridCard
+import com.example.ui.components.VideoListRow
 import com.example.ui.theme.HoneyGold
 import com.example.ui.viewmodel.VideoUiState
 import com.example.ui.viewmodel.VideoViewModel
@@ -95,7 +101,19 @@ fun VideosScreen(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Pick Video Test Button
+                // View Mode Toggle (Grid / List)
+                IconButton(
+                    onClick = { viewModel.toggleViewMode() },
+                    modifier = Modifier.testTag("videos_view_mode_toggle")
+                ) {
+                    Icon(
+                        imageVector = if (uiState.viewMode == "grid") Icons.Default.ViewList else Icons.Default.GridView,
+                        contentDescription = "Toggle View Mode",
+                        tint = HoneyGold
+                    )
+                }
+
+                // Pick Video Button
                 IconButton(
                     onClick = onPickVideo,
                     modifier = Modifier.testTag("videos_pick_button")
@@ -199,7 +217,6 @@ fun VideosScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .weight(1f)
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -219,7 +236,7 @@ fun VideosScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Pick a video manually to test or tap refresh.",
+                        text = "Pick a video manually or scan storage.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
@@ -253,23 +270,51 @@ fun VideosScreen(
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
-            ) {
-                items(uiState.filteredVideos, key = { it.contentUri }) { video ->
-                    val isFav = uiState.favoriteVideos.any { it.contentUri == video.contentUri }
-                    VideoCard(
-                        video = video,
-                        isFavorite = isFav,
-                        onVideoClick = {
-                            viewModel.playVideo(video, uiState.filteredVideos)
-                        },
-                        onFavoriteClick = {
-                            viewModel.toggleFavorite(video)
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+            if (uiState.viewMode == "grid") {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(uiState.filteredVideos, key = { it.contentUri }) { video ->
+                        val isFav = uiState.favoriteUris.contains(video.contentUri)
+                        val record = uiState.playbackRecordsMap[video.contentUri]
+                        VideoGridCard(
+                            video = video,
+                            isFavorite = isFav,
+                            playbackRecord = record,
+                            onVideoClick = { viewModel.playVideo(video, uiState.filteredVideos) },
+                            onFavoriteClick = { viewModel.toggleFavorite(video) },
+                            onAddToPlaylist = { viewModel.showAddToPlaylistDialog(video) },
+                            onShowInfo = { viewModel.showVideoInfo(video) }
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp)
+                ) {
+                    items(uiState.filteredVideos, key = { it.contentUri }) { video ->
+                        val isFav = uiState.favoriteUris.contains(video.contentUri)
+                        val record = uiState.playbackRecordsMap[video.contentUri]
+                        VideoCard(
+                            video = video,
+                            isFavorite = isFav,
+                            playbackRecord = record,
+                            onVideoClick = {
+                                viewModel.playVideo(video, uiState.filteredVideos)
+                            },
+                            onFavoriteClick = {
+                                viewModel.toggleFavorite(video)
+                            },
+                            onAddToPlaylist = { viewModel.showAddToPlaylistDialog(video) },
+                            onShowInfo = { viewModel.showVideoInfo(video) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
         }

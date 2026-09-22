@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -13,16 +14,20 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,8 +41,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -49,7 +56,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.components.AddToPlaylistDialog
+import com.example.ui.components.MiniPlayerBar
 import com.example.ui.components.PermissionPrompt
+import com.example.ui.components.VideoInfoDialog
 import com.example.ui.player.PlayerScreen
 import com.example.ui.theme.HoneyGold
 import com.example.ui.viewmodel.VideoViewModel
@@ -58,6 +68,7 @@ enum class MainTab(val label: String) {
     HOME("Home"),
     VIDEOS("Videos"),
     FOLDERS("Folders"),
+    PLAYLISTS("Playlists"),
     FAVORITES("Favorites")
 }
 
@@ -70,8 +81,9 @@ fun MainAppScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var isSettingsOpen by remember { mutableStateOf(false) }
 
-    // Requirement 1 & 2: Use READ_MEDIA_VIDEO on Android 13+ (Tiramisu, API 33+), READ_EXTERNAL_STORAGE on 12 and below
+    // Use READ_MEDIA_VIDEO on Android 13+ (API 33+), READ_EXTERNAL_STORAGE on 12 and below
     val requiredPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_VIDEO
     } else {
@@ -84,7 +96,7 @@ fun MainAppScreen(
         viewModel.onPermissionResult(isGranted)
     }
 
-    // IMPORTANT Requirement: System file picker (ACTION_OPEN_DOCUMENT) to pick video manually
+    // System file picker (ACTION_OPEN_DOCUMENT) to pick video manually
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -103,7 +115,7 @@ fun MainAppScreen(
         videoPickerLauncher.launch(arrayOf("video/*"))
     }
 
-    val onOpenSettings: () -> Unit = {
+    val onOpenAppSystemSettings: () -> Unit = {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)
@@ -153,51 +165,78 @@ fun MainAppScreen(
         return
     }
 
+    // If Settings Screen is open
+    if (isSettingsOpen) {
+        BackHandler { isSettingsOpen = false }
+        SettingsScreen(
+            uiState = uiState,
+            viewModel = viewModel,
+            onBack = { isSettingsOpen = false }
+        )
+        return
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (uiState.permissionGranted) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    modifier = Modifier.testTag("bottom_navigation_bar")
-                ) {
-                    val tabs = MainTab.entries
-                    tabs.forEachIndexed { index, tab ->
-                        val isSelected = selectedTab == index
-                        val (selectedIcon, unselectedIcon) = when (tab) {
-                            MainTab.HOME -> Icons.Filled.Home to Icons.Outlined.Home
-                            MainTab.VIDEOS -> Icons.Filled.VideoLibrary to Icons.Outlined.VideoLibrary
-                            MainTab.FOLDERS -> Icons.Filled.Folder to Icons.Outlined.Folder
-                            MainTab.FAVORITES -> Icons.Filled.Favorite to Icons.Outlined.FavoriteBorder
-                        }
-
-                        NavigationBarItem(
-                            selected = isSelected,
-                            onClick = { selectedTab = index },
-                            icon = {
-                                Icon(
-                                    imageVector = if (isSelected) selectedIcon else unselectedIcon,
-                                    contentDescription = tab.label
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = tab.label,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 11.sp
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                                selectedTextColor = HoneyGold,
-                                indicatorColor = HoneyGold,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                            modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Sticky Mini Player
+                    val miniVideo = uiState.miniPlayerVideo
+                    if (miniVideo != null) {
+                        MiniPlayerBar(
+                            video = miniVideo,
+                            isPlaying = uiState.isMiniPlayerPlaying,
+                            onExpand = { viewModel.resumeFromMiniPlayer() },
+                            onTogglePlayPause = { viewModel.toggleMiniPlayerPlayback() },
+                            onClose = { viewModel.dismissMiniPlayer() }
                         )
+                    }
+
+                    // 5-Tab Navigation Bar
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp,
+                        modifier = Modifier.testTag("bottom_navigation_bar")
+                    ) {
+                        val tabs = MainTab.entries
+                        tabs.forEachIndexed { index, tab ->
+                            val isSelected = selectedTab == index
+                            val (selectedIcon, unselectedIcon) = when (tab) {
+                                MainTab.HOME -> Icons.Filled.Home to Icons.Outlined.Home
+                                MainTab.VIDEOS -> Icons.Filled.VideoLibrary to Icons.Outlined.VideoLibrary
+                                MainTab.FOLDERS -> Icons.Filled.Folder to Icons.Outlined.Folder
+                                MainTab.PLAYLISTS -> Icons.Filled.PlaylistPlay to Icons.Outlined.PlaylistPlay
+                                MainTab.FAVORITES -> Icons.Filled.Favorite to Icons.Outlined.FavoriteBorder
+                            }
+
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = { selectedTab = index },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isSelected) selectedIcon else unselectedIcon,
+                                        contentDescription = tab.label
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.label,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 10.sp
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = HoneyGold,
+                                    indicatorColor = HoneyGold,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                            )
+                        }
                     }
                 }
             }
@@ -214,7 +253,7 @@ fun MainAppScreen(
                     onRequestPermission = {
                         permissionLauncher.launch(requiredPermission)
                     },
-                    onOpenSettings = onOpenSettings,
+                    onOpenSettings = onOpenAppSystemSettings,
                     onPickVideo = onPickVideo
                 )
             } else {
@@ -227,7 +266,11 @@ fun MainAppScreen(
                         0 -> HomeScreen(
                             uiState = uiState,
                             viewModel = viewModel,
+                            onNavigateToVideos = { selectedTab = 1 },
                             onNavigateToFolders = { selectedTab = 2 },
+                            onNavigateToPlaylists = { selectedTab = 3 },
+                            onNavigateToFavorites = { selectedTab = 4 },
+                            onOpenSettings = { isSettingsOpen = true },
                             onPickVideo = onPickVideo
                         )
                         1 -> VideosScreen(
@@ -239,7 +282,11 @@ fun MainAppScreen(
                             uiState = uiState,
                             viewModel = viewModel
                         )
-                        3 -> FavoritesScreen(
+                        3 -> PlaylistsScreen(
+                            uiState = uiState,
+                            viewModel = viewModel
+                        )
+                        4 -> FavoritesScreen(
                             uiState = uiState,
                             viewModel = viewModel
                         )
@@ -247,5 +294,26 @@ fun MainAppScreen(
                 }
             }
         }
+    }
+
+    // Video Info Modal Dialog
+    val infoVideo = uiState.infoDialogVideo
+    if (infoVideo != null) {
+        VideoInfoDialog(
+            video = infoVideo,
+            onDismiss = { viewModel.dismissVideoInfo() }
+        )
+    }
+
+    // Add to Playlist Modal Dialog
+    val addToPlaylistVideo = uiState.addToPlaylistVideo
+    if (addToPlaylistVideo != null) {
+        AddToPlaylistDialog(
+            video = addToPlaylistVideo,
+            playlists = uiState.playlists,
+            onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+            onAddToPlaylist = { playlistId -> viewModel.addVideoToPlaylist(playlistId, addToPlaylistVideo) },
+            onDismiss = { viewModel.dismissAddToPlaylistDialog() }
+        )
     }
 }

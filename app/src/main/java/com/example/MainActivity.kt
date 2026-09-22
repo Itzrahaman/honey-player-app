@@ -8,9 +8,13 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.screens.MainAppScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.VideoViewModel
 
@@ -23,10 +27,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val uiState by videoViewModel.uiState.collectAsStateWithLifecycle()
+            var showSplash by rememberSaveable { mutableStateOf(true) }
 
             MyApplicationTheme(themeMode = uiState.themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainAppScreen(viewModel = videoViewModel)
+                    if (showSplash) {
+                        SplashScreen(onSplashFinished = { showSplash = false })
+                    } else {
+                        MainAppScreen(viewModel = videoViewModel)
+                    }
                 }
             }
         }

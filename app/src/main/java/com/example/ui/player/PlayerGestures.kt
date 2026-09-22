@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VolumeMute
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,13 +63,17 @@ enum class GestureHudType {
     VOLUME,
     SEEK,
     DOUBLE_TAP_REWIND,
-    DOUBLE_TAP_FORWARD
+    DOUBLE_TAP_FORWARD,
+    LOCKED_HINT
 }
 
 @Composable
 fun PlayerGestureOverlay(
     modifier: Modifier = Modifier,
     isLocked: Boolean,
+    gesturesEnabled: Boolean = true,
+    gestureSensitivity: String = "normal",
+    doubleTapSeekDurationMs: Long = 10000L,
     currentPositionMs: Long,
     durationMs: Long,
     onSingleTap: () -> Unit,
@@ -80,6 +85,12 @@ fun PlayerGestureOverlay(
     val activity = context as? Activity
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
+
+    val currentPosState = rememberUpdatedState(currentPositionMs)
+    val currentDurationState = rememberUpdatedState(durationMs)
+    val currentOnSingleTap = rememberUpdatedState(onSingleTap)
+    val currentOnSeekTo = rememberUpdatedState(onSeekTo)
+    val currentOnDoubleTapSeek = rememberUpdatedState(onDoubleTapSeek)
 
     var hudType by remember { mutableStateOf(GestureHudType.NONE) }
     var brightnessLevel by remember {
@@ -97,6 +108,13 @@ fun PlayerGestureOverlay(
     }
     var seekDeltaMs by remember { mutableLongStateOf(0L) }
     var targetSeekPositionMs by remember { mutableLongStateOf(currentPositionMs) }
+    var dragBasePosMs by remember { mutableLongStateOf(0L) }
+
+    val sensitivityFactor = when (gestureSensitivity) {
+        "high" -> 1.5f
+        "low" -> 0.65f
+        else -> 1.0f
+    }
 
     // Auto-dismiss HUD
     LaunchedEffect(hudType) {
@@ -109,79 +127,91 @@ fun PlayerGestureOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(isLocked) {
+            .pointerInput(isLocked, gesturesEnabled, doubleTapSeekDurationMs) {
                 if (isLocked) {
                     detectTapGestures(
-                        onTap = { onSingleTap() }
+                        onTap = {
+                            hudType = GestureHudType.LOCKED_HINT
+                            currentOnSingleTap.value()
+                        }
+                    )
+                } else if (!gesturesEnabled) {
+                    detectTapGestures(
+                        onTap = { currentOnSingleTap.value() }
                     )
                 } else {
                     detectTapGestures(
-                        onTap = { onSingleTap() },
+                        onTap = { currentOnSingleTap.value() },
                         onDoubleTap = { offset ->
                             val isRightSide = offset.x > size.width / 2
                             if (isRightSide) {
                                 hudType = GestureHudType.DOUBLE_TAP_FORWARD
-                                onDoubleTapSeek(10000L)
+                                currentOnDoubleTapSeek.value(doubleTapSeekDurationMs)
                             } else {
                                 hudType = GestureHudType.DOUBLE_TAP_REWIND
-                                onDoubleTapSeek(-10000L)
+                                currentOnDoubleTapSeek.value(-doubleTapSeekDurationMs)
                             }
                         }
                     )
                 }
             }
-            .pointerInput(isLocked) {
-                if (!isLocked) {
+            .pointerInput(isLocked, gesturesEnabled, sensitivityFactor) {
+                if (!isLocked && gesturesEnabled) {
+                    var lastStreamVol = -1
+                    var lastAppliedBrightness = -1f
+
                     detectVerticalDragGestures(
                         onDragStart = { offset ->
                             val isLeftSide = offset.x < size.width / 2
-                            if (isLeftSide) {
-                                hudType = GestureHudType.BRIGHTNESS
-                            } else {
-                                hudType = GestureHudType.VOLUME
-                            }
+                            hudType = if (isLeftSide) GestureHudType.BRIGHTNESS else GestureHudType.VOLUME
+                            lastStreamVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                         },
-                        onDragEnd = {
-                            // Leave it to LaunchedEffect to dismiss
-                        },
+                        onDragEnd = {},
                         onDragCancel = {
                             hudType = GestureHudType.NONE
                         },
                         onVerticalDrag = { change, dragAmount ->
                             change.consume()
                             val isLeftSide = change.position.x < size.width / 2
-                            val delta = -dragAmount / 600f // Swipe up = increase
+                            val delta = (-dragAmount / 600f) * sensitivityFactor // Swipe up = increase
 
                             if (isLeftSide) {
                                 hudType = GestureHudType.BRIGHTNESS
                                 val newBrightness = (brightnessLevel + delta).coerceIn(0.01f, 1.0f)
                                 brightnessLevel = newBrightness
-                                activity?.let { act ->
-                                    val lp = act.window.attributes
-                                    lp.screenBrightness = newBrightness
-                                    act.window.attributes = lp
+                                if (kotlin.math.abs(newBrightness - lastAppliedBrightness) >= 0.015f) {
+                                    lastAppliedBrightness = newBrightness
+                                    activity?.let { act ->
+                                        val lp = act.window.attributes
+                                        lp.screenBrightness = newBrightness
+                                        act.window.attributes = lp
+                                    }
                                 }
                             } else {
                                 hudType = GestureHudType.VOLUME
                                 val newVol = (currentVolumeLevel + delta).coerceIn(0f, 1f)
                                 currentVolumeLevel = newVol
-                                val streamVol = (newVol * maxVolume).toInt()
-                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, streamVol, 0)
+                                val streamVol = (newVol * maxVolume).toInt().coerceIn(0, maxVolume)
+                                if (streamVol != lastStreamVol) {
+                                    lastStreamVol = streamVol
+                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, streamVol, 0)
+                                }
                             }
                         }
                     )
                 }
             }
-            .pointerInput(isLocked, currentPositionMs, durationMs) {
-                if (!isLocked && durationMs > 0) {
+            .pointerInput(isLocked, gesturesEnabled, sensitivityFactor) {
+                if (!isLocked && gesturesEnabled) {
                     detectHorizontalDragGestures(
                         onDragStart = {
                             hudType = GestureHudType.SEEK
                             seekDeltaMs = 0L
-                            targetSeekPositionMs = currentPositionMs
+                            dragBasePosMs = currentPosState.value
+                            targetSeekPositionMs = dragBasePosMs
                         },
                         onDragEnd = {
-                            onSeekTo(targetSeekPositionMs)
+                            currentOnSeekTo.value(targetSeekPositionMs)
                             hudType = GestureHudType.NONE
                         },
                         onDragCancel = {
@@ -190,10 +220,11 @@ fun PlayerGestureOverlay(
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
                             hudType = GestureHudType.SEEK
-                            // Sensitivity: 1 pixel ~ 100ms
-                            val deltaMs = (dragAmount * 120f).toLong()
+                            val totalDur = currentDurationState.value
+                            val deltaMs = (dragAmount * 120f * sensitivityFactor).toLong()
                             seekDeltaMs += deltaMs
-                            targetSeekPositionMs = (currentPositionMs + seekDeltaMs).coerceIn(0L, durationMs)
+                            val safeDur = if (totalDur > 0L) totalDur else Long.MAX_VALUE
+                            targetSeekPositionMs = (dragBasePosMs + seekDeltaMs).coerceIn(0L, safeDur)
                         }
                     )
                 }
@@ -250,14 +281,17 @@ fun PlayerGestureOverlay(
                 GestureHudType.DOUBLE_TAP_REWIND -> {
                     DoubleTapSeekIndicator(
                         icon = Icons.Default.FastRewind,
-                        text = "-10 sec"
+                        text = "-${doubleTapSeekDurationMs / 1000} sec"
                     )
                 }
                 GestureHudType.DOUBLE_TAP_FORWARD -> {
                     DoubleTapSeekIndicator(
                         icon = Icons.Default.FastForward,
-                        text = "+10 sec"
+                        text = "+${doubleTapSeekDurationMs / 1000} sec"
                     )
+                }
+                GestureHudType.LOCKED_HINT -> {
+                    LockedHudIndicator()
                 }
                 GestureHudType.NONE -> {}
             }
@@ -360,6 +394,32 @@ private fun DoubleTapSeekIndicator(
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun LockedHudIndicator() {
+    Box(
+        modifier = Modifier
+            .background(Color(0xD9121316), RoundedCornerShape(16.dp))
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                tint = HoneyGold,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Screen is Locked. Tap the lock icon to unlock.",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
