@@ -72,14 +72,14 @@ fun PermissionPrompt(
                 // Icon Header
                 Surface(
                     shape = CircleShape,
-                    color = if (isDenied) ErrorRed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                    color = HoneyGold.copy(alpha = 0.15f),
                     modifier = Modifier.size(72.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (isDenied) Icons.Default.WarningAmber else Icons.Default.VideoLibrary,
+                            imageVector = Icons.Default.VideoLibrary,
                             contentDescription = null,
-                            tint = if (isDenied) ErrorRed else HoneyGold,
+                            tint = HoneyGold,
                             modifier = Modifier.size(40.dp)
                         )
                     }
@@ -88,7 +88,7 @@ fun PermissionPrompt(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = if (isDenied) "Storage Access Needed" else "Welcome to HONEY Player",
+                    text = "Storage Access Needed",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -99,7 +99,7 @@ fun PermissionPrompt(
 
                 Text(
                     text = if (isDenied) {
-                        "Permission was denied. HONEY Player needs storage access to scan your local video library. Please grant permission, open App Settings, or pick a video manually."
+                        "Storage permission allows HONEY Player to automatically scan and list all your local video files. Please grant permission, open Settings, or pick any video directly."
                     } else {
                         "To discover and play local videos, HONEY Player needs access to your device's video storage."
                     },

@@ -20,7 +20,7 @@ interface PlaybackDao {
     @Query("SELECT videoUri FROM playback_records WHERE isFavorite = 1")
     fun getFavoriteUris(): Flow<List<String>>
 
-    @Query("SELECT * FROM playback_records WHERE positionMs > 3000 AND (durationMs == 0 OR positionMs < (durationMs - 5000)) ORDER BY lastPlayedTimestamp DESC")
+    @Query("SELECT * FROM playback_records WHERE positionMs > 3000 AND (durationMs = 0 OR positionMs < (durationMs - 5000)) ORDER BY lastPlayedTimestamp DESC")
     fun getContinueWatchingRecords(): Flow<List<PlaybackRecord>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

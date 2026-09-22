@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -88,6 +90,8 @@ fun HomeScreen(
     onNavigateToPlaylists: () -> Unit,
     onNavigateToFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
+    onRequestPermission: () -> Unit = {},
+    onOpenSystemSettings: () -> Unit = {},
     onPickVideo: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -224,6 +228,66 @@ fun HomeScreen(
             }
         }
 
+        if (!uiState.permissionGranted) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = HoneyGold.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .testTag("storage_permission_banner")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = HoneyGold,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Storage Access Required",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (uiState.permissionDenied) "Permission denied. Open Settings to grant access." else "Allow storage access to scan videos.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            if (uiState.permissionDenied) onOpenSystemSettings() else onRequestPermission()
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = HoneyGold,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.testTag("banner_permission_action_button")
+                    ) {
+                        Text(
+                            text = if (uiState.permissionDenied) "Settings" else "Allow",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
         if (uiState.isLoading) {
             Box(
                 modifier = Modifier
@@ -266,7 +330,7 @@ fun HomeScreen(
                 }
             }
         } else if (uiState.allVideos.isEmpty()) {
-            // No videos on device
+            // No videos on device or permission not granted
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -283,14 +347,18 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "No Videos Found",
+                        text = if (!uiState.permissionGranted) "Storage Access Needed" else "No Videos Found",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No local video files were detected in MediaStore. Pick a video manually to test or scan storage.",
+                        text = if (!uiState.permissionGranted) {
+                            "Storage permission allows HONEY Player to automatically scan and list all your local video files. Please grant permission or pick a video directly."
+                        } else {
+                            "No local video files were detected in your media library. Pick a video manually to play or tap Refresh after adding videos."
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -301,13 +369,39 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (!uiState.permissionGranted) {
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    if (uiState.permissionDenied) onOpenSystemSettings() else onRequestPermission()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = HoneyGold,
+                                    contentColor = Color.Black
+                                ),
+                                modifier = Modifier.testTag("empty_state_grant_permission_button")
+                            ) {
+                                Text(
+                                    text = if (uiState.permissionDenied) "Settings" else "Grant Access",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         androidx.compose.material3.Button(
                             onClick = onPickVideo,
                             shape = RoundedCornerShape(12.dp),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = HoneyGold,
-                                contentColor = Color.Black
-                            ),
+                            colors = if (!uiState.permissionGranted) {
+                                androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            } else {
+                                androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = HoneyGold,
+                                    contentColor = Color.Black
+                                )
+                            },
                             modifier = Modifier.testTag("pick_video_empty_state_button")
                         ) {
                             Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -315,14 +409,16 @@ fun HomeScreen(
                             Text("Pick Video", fontWeight = FontWeight.Bold)
                         }
 
-                        androidx.compose.material3.OutlinedButton(
-                            onClick = { viewModel.refreshVideos() },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("refresh_library_button")
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Refresh")
+                        if (uiState.permissionGranted) {
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = { viewModel.refreshVideos() },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("refresh_library_button")
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Refresh")
+                            }
                         }
                     }
                 }

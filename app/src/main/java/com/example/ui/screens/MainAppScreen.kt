@@ -125,13 +125,13 @@ fun MainAppScreen(
         } catch (_: Exception) {}
     }
 
-    // Check permission on startup
+    // Check permission on startup (silent check without interrupting activity lifecycle)
     LaunchedEffect(Unit) {
         val granted = ContextCompat.checkSelfPermission(
             context,
             requiredPermission
         ) == PackageManager.PERMISSION_GRANTED
-        viewModel.onPermissionResult(granted)
+        viewModel.onPermissionChecked(granted)
     }
 
     // Re-check permission when app returns from background / Settings
@@ -143,7 +143,7 @@ fun MainAppScreen(
                     requiredPermission
                 ) == PackageManager.PERMISSION_GRANTED
                 if (granted != uiState.permissionGranted) {
-                    viewModel.onPermissionResult(granted)
+                    viewModel.onPermissionChecked(granted)
                 }
             }
         }
@@ -176,67 +176,70 @@ fun MainAppScreen(
         return
     }
 
+    // Return to Home tab on back press if on secondary tabs
+    BackHandler(enabled = selectedTab != 0) {
+        selectedTab = 0
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (uiState.permissionGranted) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Sticky Mini Player
-                    val miniVideo = uiState.miniPlayerVideo
-                    if (miniVideo != null) {
-                        MiniPlayerBar(
-                            video = miniVideo,
-                            isPlaying = uiState.isMiniPlayerPlaying,
-                            onExpand = { viewModel.resumeFromMiniPlayer() },
-                            onTogglePlayPause = { viewModel.toggleMiniPlayerPlayback() },
-                            onClose = { viewModel.dismissMiniPlayer() }
-                        )
-                    }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Sticky Mini Player
+                val miniVideo = uiState.miniPlayerVideo
+                if (miniVideo != null) {
+                    MiniPlayerBar(
+                        video = miniVideo,
+                        isPlaying = uiState.isMiniPlayerPlaying,
+                        onExpand = { viewModel.resumeFromMiniPlayer() },
+                        onTogglePlayPause = { viewModel.toggleMiniPlayerPlayback() },
+                        onClose = { viewModel.dismissMiniPlayer() }
+                    )
+                }
 
-                    // 5-Tab Navigation Bar
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 6.dp,
-                        modifier = Modifier.testTag("bottom_navigation_bar")
-                    ) {
-                        val tabs = MainTab.entries
-                        tabs.forEachIndexed { index, tab ->
-                            val isSelected = selectedTab == index
-                            val (selectedIcon, unselectedIcon) = when (tab) {
-                                MainTab.HOME -> Icons.Filled.Home to Icons.Outlined.Home
-                                MainTab.VIDEOS -> Icons.Filled.VideoLibrary to Icons.Outlined.VideoLibrary
-                                MainTab.FOLDERS -> Icons.Filled.Folder to Icons.Outlined.Folder
-                                MainTab.PLAYLISTS -> Icons.Filled.PlaylistPlay to Icons.Outlined.PlaylistPlay
-                                MainTab.FAVORITES -> Icons.Filled.Favorite to Icons.Outlined.FavoriteBorder
-                            }
-
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = { selectedTab = index },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isSelected) selectedIcon else unselectedIcon,
-                                        contentDescription = tab.label
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.label,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 10.sp
-                                    )
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                                    selectedTextColor = HoneyGold,
-                                    indicatorColor = HoneyGold,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                ),
-                                modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
-                            )
+                // 5-Tab Navigation Bar
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier.testTag("bottom_navigation_bar")
+                ) {
+                    val tabs = MainTab.entries
+                    tabs.forEachIndexed { index, tab ->
+                        val isSelected = selectedTab == index
+                        val (selectedIcon, unselectedIcon) = when (tab) {
+                            MainTab.HOME -> Icons.Filled.Home to Icons.Outlined.Home
+                            MainTab.VIDEOS -> Icons.Filled.VideoLibrary to Icons.Outlined.VideoLibrary
+                            MainTab.FOLDERS -> Icons.Filled.Folder to Icons.Outlined.Folder
+                            MainTab.PLAYLISTS -> Icons.Filled.PlaylistPlay to Icons.Outlined.PlaylistPlay
+                            MainTab.FAVORITES -> Icons.Filled.Favorite to Icons.Outlined.FavoriteBorder
                         }
+
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { selectedTab = index },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isSelected) selectedIcon else unselectedIcon,
+                                    contentDescription = tab.label
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = tab.label,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 10.sp
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedTextColor = HoneyGold,
+                                indicatorColor = HoneyGold,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                        )
                     }
                 }
             }
@@ -247,50 +250,43 @@ fun MainAppScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (!uiState.permissionGranted) {
-                PermissionPrompt(
-                    isDenied = uiState.permissionDenied,
-                    onRequestPermission = {
-                        permissionLauncher.launch(requiredPermission)
-                    },
-                    onOpenSettings = onOpenAppSystemSettings,
-                    onPickVideo = onPickVideo
-                )
-            } else {
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "tab_switch"
-                ) { targetTab ->
-                    when (targetTab) {
-                        0 -> HomeScreen(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            onNavigateToVideos = { selectedTab = 1 },
-                            onNavigateToFolders = { selectedTab = 2 },
-                            onNavigateToPlaylists = { selectedTab = 3 },
-                            onNavigateToFavorites = { selectedTab = 4 },
-                            onOpenSettings = { isSettingsOpen = true },
-                            onPickVideo = onPickVideo
-                        )
-                        1 -> VideosScreen(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            onPickVideo = onPickVideo
-                        )
-                        2 -> FoldersScreen(
-                            uiState = uiState,
-                            viewModel = viewModel
-                        )
-                        3 -> PlaylistsScreen(
-                            uiState = uiState,
-                            viewModel = viewModel
-                        )
-                        4 -> FavoritesScreen(
-                            uiState = uiState,
-                            viewModel = viewModel
-                        )
-                    }
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "tab_switch"
+            ) { targetTab ->
+                when (targetTab) {
+                    0 -> HomeScreen(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        onNavigateToVideos = { selectedTab = 1 },
+                        onNavigateToFolders = { selectedTab = 2 },
+                        onNavigateToPlaylists = { selectedTab = 3 },
+                        onNavigateToFavorites = { selectedTab = 4 },
+                        onOpenSettings = { isSettingsOpen = true },
+                        onRequestPermission = {
+                            permissionLauncher.launch(requiredPermission)
+                        },
+                        onOpenSystemSettings = onOpenAppSystemSettings,
+                        onPickVideo = onPickVideo
+                    )
+                    1 -> VideosScreen(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        onPickVideo = onPickVideo
+                    )
+                    2 -> FoldersScreen(
+                        uiState = uiState,
+                        viewModel = viewModel
+                    )
+                    3 -> PlaylistsScreen(
+                        uiState = uiState,
+                        viewModel = viewModel
+                    )
+                    4 -> FavoritesScreen(
+                        uiState = uiState,
+                        viewModel = viewModel
+                    )
                 }
             }
         }

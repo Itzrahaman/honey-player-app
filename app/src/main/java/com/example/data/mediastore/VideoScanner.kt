@@ -48,8 +48,8 @@ class VideoScanner(private val context: Context) {
         }
 
         val projection = projectionList.toTypedArray()
-        // Filter out zero-byte or corrupt files directly in MediaStore SQL query
-        val selection = "${MediaStore.Video.Media.SIZE} > 0 AND ${MediaStore.Video.Media.DURATION} > 0"
+        // Filter out zero-byte files directly in MediaStore SQL query
+        val selection = "${MediaStore.Video.Media.SIZE} > 0"
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
 
         try {
@@ -85,8 +85,9 @@ class VideoScanner(private val context: Context) {
 
                 while (c.moveToNext()) {
                     val id = c.getLong(idCol)
-                    val duration = if (durationCol != -1) c.getLong(durationCol) else 0L
-                    if (duration <= 0L) continue
+                    val duration = if (durationCol != -1) {
+                        try { c.getLong(durationCol) } catch (_: Exception) { 0L }
+                    } else 0L
 
                     val contentUri = ContentUris.withAppendedId(
                         MediaStore.Video.Media.EXTERNAL_CONTENT_URI,

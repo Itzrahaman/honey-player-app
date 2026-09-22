@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class VideoUiState(
-    val isLoading: Boolean = true,
+    val isLoading: Boolean = false,
     val permissionGranted: Boolean = false,
     val permissionDenied: Boolean = false,
     val allVideos: List<VideoItem> = emptyList(),
@@ -52,7 +52,7 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = VideoRepository(application.applicationContext)
     private val settingsManager = repository.settingsManager
 
-    private val _isLoading = MutableStateFlow(true)
+    private val _isLoading = MutableStateFlow(false)
     private val _permissionGranted = MutableStateFlow(false)
     private val _permissionDenied = MutableStateFlow(false)
     private val _scannedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
@@ -195,6 +195,16 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = VideoUiState()
     )
+
+    fun onPermissionChecked(isGranted: Boolean) {
+        _permissionGranted.value = isGranted
+        if (isGranted) {
+            _permissionDenied.value = false
+            refreshVideos()
+        } else {
+            _isLoading.value = false
+        }
+    }
 
     fun onPermissionResult(isGranted: Boolean) {
         _permissionGranted.value = isGranted
